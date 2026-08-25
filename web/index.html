@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MD Viewer</title>
+  <link id="hljs-theme" rel="stylesheet" href="assets/github.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="left">
+      <button id="btn-open" title="打开 Markdown 文件">📂 打开</button>
+      <div id="tabs" class="tabs"></div>
+    </div>
+    <div class="right">
+      <label class="switch"><input type="checkbox" id="autorefresh" checked> 自动刷新</label>
+      <button id="btn-theme" title="切换亮/暗主题">🌗 主题</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="toc-panel">
+      <div class="toc-title">目录</div>
+      <nav id="toc"></nav>
+    </aside>
+    <main class="content" id="content">
+      <div class="placeholder" id="placeholder">
+        <p>把 <b>.md</b> 文件拖到这里，或点击左上角「📂 打开」</p>
+        <p class="hint">支持拖拽 / 打开按钮 / 命令行传入路径</p>
+      </div>
+    </main>
+  </div>
+
+  <div class="dropzone" id="dropzone"><div>松开以打开 Markdown 文件</div></div>
+
+  <script src="assets/marked.min.js"></script>
+  <script src="assets/highlight.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
