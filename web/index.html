@@ -15,6 +15,7 @@
     </div>
     <div class="right">
       <label class="switch"><input type="checkbox" id="autorefresh" checked> 自动刷新</label>
+      <button id="btn-copy" title="复制内容：有选区复制选区，无选区复制全文">📋 复制</button>
       <button id="btn-theme" title="切换亮/暗主题">🌗 主题</button>
     </div>
   </header>
@@ -33,6 +34,16 @@
   </div>
 
   <div class="dropzone" id="dropzone"><div>松开以打开 Markdown 文件</div></div>
+
+  <!-- 自定义右键菜单：弥补 WebView2 被禁用的原生右键复制 -->
+  <ul class="ctx-menu" id="ctx-menu" hidden>
+    <li data-action="copy-selection">复制选中文字</li>
+    <li data-action="copy-text">复制全文（纯文本）</li>
+    <li data-action="copy-md">复制全文（Markdown 源码）</li>
+  </ul>
+
+  <!-- 复制成功轻提示 -->
+  <div class="toast" id="toast" hidden></div>
 
   <script src="assets/marked.min.js"></script>
   <script src="assets/highlight.min.js"></script>

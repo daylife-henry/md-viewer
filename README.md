@@ -25,6 +25,7 @@
 - 🌗 **亮 / 暗主题**：一键切换，记忆上次选择
 - 🔄 **自动刷新**：外部编辑当前 `.md` 保存后窗口自动重渲染（工具栏可关）
 - 🖼️ **图片内联**：`.md` 中相对路径图片自动转 base64 内联，离线也不丢图
+- 📋 **复制内容**：工具栏「📋 复制」按钮（有选区复制选区、无选区复制全文）；正文**右键菜单**可复制选中文字 / 全文纯文本 / 全文 Markdown 源码；每个代码块右上角带悬浮「复制」按钮。复制成功有轻提示
 
 ## 系统要求
 
@@ -53,7 +54,8 @@ md-viewer/
 
 ```bat
 python\python.exe -m PyInstaller --noconfirm --onefile --windowed ^
-  --name MDViewer --add-data "web;web" --collect-all webview --hidden-import webview app.py
+  --name MDViewer --icon app-icon.ico --add-data "web;web" ^
+  --collect-all webview --hidden-import webview app.py
 ```
 
 产物在 `dist/MDViewer.exe`。

@@ -1,17 +1,33 @@
 // 2026-08-25 Henry / 墨
 // md-viewer 前端逻辑：多文件标签页、Markdown 渲染、目录、拖拽、主题、自动刷新
+// 升级：代码块复制按钮 + 自定义右键菜单 + 工具栏复制 + 正文选区显式开启 + 复制 toast
+// （解决 WebView2 默认禁用右键菜单导致"选了复制不出来"的问题）
 
 const contentEl = document.getElementById('content');
 const tocEl = document.getElementById('toc');
 const tabsEl = document.getElementById('tabs');
 const dropzone = document.getElementById('dropzone');
 const placeholder = document.getElementById('placeholder');
+const ctxMenu = document.getElementById('ctx-menu');
+const toastEl = document.getElementById('toast');
 
 let currentPath = null;
 let fileMap = {}; // path -> {name, content, dir}
 
 // 开启 GFM（表格、任务列表、删除线等）
 marked.setOptions({ gfm: true, breaks: false });
+
+// ---------- 渲染核心 ----------
+// 统一渲染：innerHTML -> 高亮 -> 代码块复制按钮 -> 目录 -> 回到顶部
+function paint(html) {
+  contentEl.innerHTML = html;
+  contentEl.querySelectorAll('pre code').forEach((b) => {
+    try { hljs.highlightElement(b); } catch (e) { /* 忽略单语言解析失败 */ }
+  });
+  addCodeCopyButtons();
+  buildToc();
+  contentEl.scrollTop = 0;
+}
 
 function render(data) {
   if (!data) return;
@@ -22,14 +38,17 @@ function render(data) {
     content: data.content,
   };
   placeholder.style.display = 'none';
-  const html = marked.parse(data.content || '');
-  contentEl.innerHTML = html;
-  // 代码高亮
-  contentEl.querySelectorAll('pre code').forEach((b) => {
-    try { hljs.highlightElement(b); } catch (e) { /* 忽略单语言解析失败 */ }
-  });
-  buildToc();
-  contentEl.scrollTop = 0;
+  paint(marked.parse(data.content || ''));
+  refreshTabs();
+}
+
+// 后端状态丢失但前端有缓存时，直接从 fileMap 渲染
+function showFromCache(path) {
+  const cached = fileMap[path];
+  if (!cached) return;
+  currentPath = path;
+  placeholder.style.display = 'none';
+  paint(marked.parse(cached.content || ''));
   refreshTabs();
 }
 
@@ -96,17 +115,7 @@ async function switchFile(path) {
     if (data) {
       render(data);
     } else if (fileMap[path]) {
-      // 后端状态丢失但前端有缓存，直接切过去
-      const cached = fileMap[path];
-      currentPath = path;
-      placeholder.style.display = 'none';
-      contentEl.innerHTML = marked.parse(cached.content || '');
-      contentEl.querySelectorAll('pre code').forEach((b) => {
-        try { hljs.highlightElement(b); } catch (e) {}
-      });
-      buildToc();
-      contentEl.scrollTop = 0;
-      refreshTabs();
+      showFromCache(path);
     }
   } catch (e) { console.error(e); }
 }
@@ -137,18 +146,7 @@ async function closeFile(path) {
       // 后端无此文件（如拖拽临时文件）或已全部关闭
       const remaining = Object.keys(fileMap);
       if (remaining.length) {
-        // 显示剩余最后一个文件（优先展示真实后端文件，若都无内容则取最后一个）
-        const lastPath = remaining[remaining.length - 1];
-        const cached = fileMap[lastPath];
-        currentPath = lastPath;
-        placeholder.style.display = 'none';
-        contentEl.innerHTML = marked.parse(cached.content || '');
-        contentEl.querySelectorAll('pre code').forEach((b) => {
-          try { hljs.highlightElement(b); } catch (e) {}
-        });
-        buildToc();
-        contentEl.scrollTop = 0;
-        refreshTabs();
+        showFromCache(remaining[remaining.length - 1]);
       } else {
         currentPath = null;
         contentEl.innerHTML = '';
@@ -180,6 +178,135 @@ function toggleTheme() {
     dark ? 'assets/github-dark.min.css' : 'assets/github.min.css';
   try { localStorage.setItem('mdviewer-theme', dark ? 'dark' : 'light'); } catch (e) {}
 }
+
+// ---------- 复制能力 ----------
+// 兼容 WebView2 非安全上下文：优先 execCommand 兜底，再试 clipboard API
+function copyText(text) {
+  if (!text) return false;
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok) return true;
+  } catch (e) { /* 走下方兜底 */ }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      return true;
+    }
+  } catch (e) { /* 忽略 */ }
+  return false;
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  if (!toastEl) return;
+  toastEl.textContent = msg;
+  toastEl.hidden = false;
+  requestAnimationFrame(() => { toastEl.classList.add('show'); });
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastEl.classList.remove('show');
+    setTimeout(() => { toastEl.hidden = true; }, 200);
+  }, 1200);
+}
+
+function copyAndToast(text, okMsg) {
+  if (!text || !text.trim()) {
+    showToast('没有可复制的内容');
+    return;
+  }
+  const ok = copyText(text);
+  showToast(ok ? (okMsg || '已复制') : '复制失败');
+}
+
+// 每个代码块加一个右上角"复制"按钮
+function addCodeCopyButtons() {
+  contentEl.querySelectorAll('pre').forEach((pre) => {
+    if (pre.querySelector('.code-copy')) return; // 防止重复添加
+    const btn = document.createElement('button');
+    btn.className = 'code-copy';
+    btn.type = 'button';
+    btn.textContent = '复制';
+    btn.title = '复制代码';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const code = pre.querySelector('code');
+      const text = code ? code.textContent : (pre.textContent || '');
+      const ok = copyText(text);
+      if (ok) {
+        btn.textContent = '已复制';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1200);
+      } else {
+        btn.textContent = '失败';
+        setTimeout(() => { btn.textContent = '复制'; }, 1200);
+      }
+    });
+    pre.appendChild(btn);
+  });
+}
+
+// 取当前在正文内的选区文字
+function getSelectionText() {
+  const sel = window.getSelection();
+  if (sel && sel.toString && sel.toString().trim()) {
+    const anchor = sel.anchorNode;
+    if (anchor && contentEl.contains(anchor)) return sel.toString();
+  }
+  return '';
+}
+
+// 自定义右键菜单：弥补 WebView2 被禁用的原生右键复制
+contentEl.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const selText = getSelectionText();
+  ctxMenu.querySelectorAll('li').forEach((li) => {
+    if (li.dataset.action === 'copy-selection') {
+      li.classList.toggle('disabled', !selText);
+    }
+  });
+  ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 210) + 'px';
+  ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 120) + 'px';
+  ctxMenu.hidden = false;
+});
+
+document.addEventListener('click', (e) => {
+  if (!ctxMenu.hidden && !ctxMenu.contains(e.target)) ctxMenu.hidden = true;
+});
+window.addEventListener('scroll', () => { if (!ctxMenu.hidden) ctxMenu.hidden = true; }, true);
+
+ctxMenu.addEventListener('click', (e) => {
+  const li = e.target.closest('li');
+  if (!li || li.classList.contains('disabled')) return;
+  const action = li.dataset.action;
+  if (action === 'copy-selection') {
+    copyAndToast(getSelectionText(), '已复制选中文字');
+  } else if (action === 'copy-text') {
+    copyAndToast(contentEl.innerText, '已复制全文');
+  } else if (action === 'copy-md') {
+    const item = fileMap[currentPath];
+    copyAndToast(item ? item.content : '', '已复制 Markdown 源码');
+  }
+  ctxMenu.hidden = true;
+});
+
+// 工具栏"📋 复制"：有选区复制选区，无选区复制全文
+document.getElementById('btn-copy').addEventListener('click', () => {
+  const sel = getSelectionText();
+  if (sel) {
+    copyAndToast(sel, '已复制选中文字');
+  } else {
+    copyAndToast(contentEl.innerText, '已复制全文');
+  }
+});
 
 // ---- 拖拽打开（支持多文件）----
 let dragDepth = 0;
